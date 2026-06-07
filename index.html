@@ -1,0 +1,726 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FinSight AML — Transaction Intelligence Platform</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #030712; font-family: 'Courier New', monospace; overflow: hidden; }
+    ::-webkit-scrollbar { width: 4px; }
+    ::-webkit-scrollbar-track { background: #111827; }
+    ::-webkit-scrollbar-thumb { background: #374151; border-radius: 2px; }
+    @keyframes pulse-ring { 0% { box-shadow: 0 0 0 0 rgba(34,197,94,0.4); } 70% { box-shadow: 0 0 0 6px rgba(34,197,94,0); } 100% { box-shadow: 0 0 0 0 rgba(34,197,94,0); } }
+    @keyframes slide-in { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+    .live-dot { animation: pulse-ring 2s infinite; }
+    .txn-new { animation: slide-in 0.3s ease-out; }
+    .fade-in { animation: fade-in 0.4s ease-out; }
+    .scan-line {
+      background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,255,200,0.02) 2px, rgba(0,255,200,0.02) 4px);
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef, useCallback, useMemo } = React;
+
+    // ─── Constants ───────────────────────────────────────────────────────────
+    const HIGH_RISK = ['RU','IR','KP','SY','VE','BY','AF','MM','CU','YE','LY','SD'];
+    const MEDIUM_RISK = ['NG','PK','UA','AZ','TN','DZ','EG','KZ','UZ'];
+
+    const COUNTRIES = {
+      GB:'United Kingdom', US:'United States', DE:'Germany', FR:'France',
+      CH:'Switzerland', SG:'Singapore', HK:'Hong Kong', AE:'UAE',
+      NL:'Netherlands', LU:'Luxembourg', MT:'Malta', CY:'Cyprus',
+      RU:'Russia', IR:'Iran', KP:'North Korea', SY:'Syria',
+      VE:'Venezuela', BY:'Belarus', AF:'Afghanistan', MM:'Myanmar',
+      CU:'Cuba', YE:'Yemen', LY:'Libya', SD:'Sudan',
+      NG:'Nigeria', PK:'Pakistan', UA:'Ukraine', AZ:'Azerbaijan',
+      CN:'China', IN:'India', BR:'Brazil', ZA:'South Africa',
+    };
+
+    const TX_TYPES = ['SWIFT','SEPA','Faster Payments','CHAPS','Crypto Exchange','Cash Deposit','Wire Transfer','BACS'];
+
+    const CUSTOMERS = [
+      { id:'C001', name:'James Fletcher',     type:'Individual' },
+      { id:'C002', name:'Meridian Trade Ltd', type:'Corporate'  },
+      { id:'C003', name:'Elena Volkov',       type:'Individual' },
+      { id:'C004', name:'AlphaCap Holdings',  type:'Corporate'  },
+      { id:'C005', name:'Roshan Malik',       type:'Individual' },
+      { id:'C006', name:'Pacific Bridge Corp',type:'Corporate'  },
+      { id:'C007', name:'Sophie Laurent',     type:'Individual' },
+      { id:'C008', name:'Zenith Ventures LLC',type:'Corporate'  },
+      { id:'C009', name:'Omar Al-Rashid',     type:'Individual' },
+      { id:'C010', name:'Nexus Financial Ltd',type:'Corporate'  },
+      { id:'C011', name:'Priya Sharma',       type:'Individual' },
+      { id:'C012', name:'Baltic Consulting',  type:'Corporate'  },
+      { id:'C013', name:'Wei Zhang',          type:'Individual' },
+      { id:'C014', name:'Atlas Capital GmbH', type:'Corporate'  },
+    ];
+
+    // ─── Risk Engine ─────────────────────────────────────────────────────────
+    function scoreTransaction(txn) {
+      let score = 0;
+      const factors = [];
+
+      if (HIGH_RISK.includes(txn.toCountry)) {
+        score += 38; factors.push(`⚠ High-risk destination: ${COUNTRIES[txn.toCountry]}`);
+      }
+      if (HIGH_RISK.includes(txn.fromCountry)) {
+        score += 18; factors.push(`⚠ High-risk origin: ${COUNTRIES[txn.fromCountry]}`);
+      }
+      if (MEDIUM_RISK.includes(txn.toCountry)) {
+        score += 15; factors.push(`⚠ Medium-risk jurisdiction: ${COUNTRIES[txn.toCountry]}`);
+      }
+      if (txn.amount >= 8000 && txn.amount <= 9990 && txn.amount % 10 !== 0) {
+        score += 32; factors.push('⚠ Potential structuring — near-threshold amount');
+      }
+      if (txn.amount % 1000 === 0 && txn.amount >= 5000) {
+        score += 14; factors.push('⚠ Suspicious round-number amount');
+      }
+      if (txn.amount > 50000) {
+        score += 22; factors.push(`⚠ High-value: ${formatGBP(txn.amount)}`);
+      } else if (txn.amount > 10000) {
+        score += 10; factors.push(`⚠ Elevated value: ${formatGBP(txn.amount)}`);
+      }
+      if (txn.type === 'Crypto Exchange') {
+        score += 20; factors.push('⚠ Cryptocurrency — limited traceability');
+      }
+      if (txn.type === 'Cash Deposit') {
+        score += 16; factors.push('⚠ Cash deposit — limited audit trail');
+      }
+      if (txn.customerType === 'Corporate' && HIGH_RISK.includes(txn.toCountry)) {
+        score += 8; factors.push('⚠ Corporate entity → high-risk jurisdiction');
+      }
+
+      score += Math.floor(Math.random() * 8);
+      return { score: Math.min(score, 100), factors };
+    }
+
+    let counter = 1;
+    function genTxn() {
+      const c = CUSTOMERS[Math.floor(Math.random() * CUSTOMERS.length)];
+      const fromPool = ['GB','GB','GB','GB','DE','US','FR','CH','AE','SG'];
+      const toPool   = Object.keys(COUNTRIES);
+      const from = fromPool[Math.floor(Math.random() * fromPool.length)];
+      const to   = toPool[Math.floor(Math.random() * toPool.length)];
+
+      const amountFns = [
+        () => Math.floor(Math.random() * 4500) + 500,
+        () => Math.floor(Math.random() * 4000) + 5000,
+        () => (Math.floor(Math.random() * 10) + 1) * 1000,
+        () => Math.floor(Math.random() * 1990) + 8000,
+        () => Math.floor(Math.random() * 90000) + 10000,
+      ];
+      const weights = [0.40, 0.25, 0.15, 0.12, 0.08];
+      let r = Math.random(), amtIdx = 0;
+      for (let i = 0; i < weights.length; i++) { r -= weights[i]; if (r <= 0) { amtIdx = i; break; } }
+      const amount = amountFns[amtIdx]();
+      const type = TX_TYPES[Math.floor(Math.random() * TX_TYPES.length)];
+      const ref = `REF${String(Math.floor(Math.random()*999999)).padStart(6,'0')}`;
+
+      const base = { id:`TXN-${String(counter++).padStart(4,'0')}`, ts: new Date(),
+        customer: c.name, customerId: c.id, customerType: c.type,
+        amount, currency:'GBP', type, fromCountry: from, toCountry: to, ref, status:'pending' };
+
+      const { score, factors } = scoreTransaction(base);
+      return { ...base, riskScore: score, riskFactors: factors };
+    }
+
+    // ─── Helpers ─────────────────────────────────────────────────────────────
+    function formatGBP(n) {
+      return new Intl.NumberFormat('en-GB',{style:'currency',currency:'GBP',minimumFractionDigits:0}).format(n);
+    }
+    function fmtTime(d) {
+      return d.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+    }
+    function tier(score) {
+      if (score >= 80) return { label:'CRITICAL', col:'#ef4444', text:'text-red-400',    bg:'bg-red-950/60',    border:'border-red-600'    };
+      if (score >= 60) return { label:'HIGH',     col:'#f97316', text:'text-orange-400', bg:'bg-orange-950/60', border:'border-orange-600' };
+      if (score >= 35) return { label:'MEDIUM',   col:'#eab308', text:'text-yellow-400', bg:'bg-yellow-950/60', border:'border-yellow-600' };
+      return               { label:'LOW',     col:'#22c55e', text:'text-green-400',  bg:'bg-green-950/40',  border:'border-green-700'  };
+    }
+
+    // ─── Toast ───────────────────────────────────────────────────────────────
+    function Toast({ toasts }) {
+      return (
+        <div className="fixed top-14 right-4 z-50 flex flex-col gap-2">
+          {toasts.map(t => (
+            <div key={t.id} className="fade-in bg-gray-900 border border-red-700 text-red-400 text-xs px-3 py-2 rounded shadow-lg">
+              🚨 {t.message}
+            </div>
+          ))}
+        </div>
+      );
+    }
+
+    // ─── App ─────────────────────────────────────────────────────────────────
+    function App() {
+      const [txns, setTxns]         = useState([]);
+      const [cases, setCases]       = useState([]);
+      const [selected, setSelected] = useState(null);
+      const [paused, setPaused]     = useState(false);
+      const [filter, setFilter]     = useState('ALL');
+      const [toasts, setToasts]     = useState([]);
+      const [stats, setStats]       = useState({ total:0, critical:0, high:0, sarFiled:0, falsePos:0 });
+
+      const addToast = useCallback((msg) => {
+        const id = Date.now();
+        setToasts(p => [...p, { id, message: msg }].slice(-3));
+        setTimeout(() => setToasts(p => p.filter(t => t.id !== id)), 4000);
+      }, []);
+
+      const addTxn = useCallback(() => {
+        const txn = genTxn();
+        setTxns(p => [txn, ...p].slice(0, 60));
+        if (txn.riskScore >= 60) {
+          const c = {
+            id: `CASE-${String(txn.id.split('-')[1])}`,
+            txnId: txn.id, txn,
+            priority: txn.riskScore >= 80 ? 'Critical' : 'High',
+            status: 'Open', openedAt: new Date(), notes: ''
+          };
+          setCases(p => [c, ...p].slice(0, 25));
+          if (txn.riskScore >= 80) addToast(`${txn.id} — CRITICAL risk flagged (${txn.riskScore}/100)`);
+        }
+        setStats(p => ({
+          total:    p.total + 1,
+          critical: p.critical + (txn.riskScore >= 80 ? 1 : 0),
+          high:     p.high    + (txn.riskScore >= 60 && txn.riskScore < 80 ? 1 : 0),
+          sarFiled: p.sarFiled,
+          falsePos: p.falsePos,
+        }));
+      }, [addToast]);
+
+      // Seed on mount
+      useEffect(() => {
+        for (let i = 0; i < 12; i++) {
+          setTimeout(() => addTxn(), i * 80);
+        }
+      }, []);
+
+      // Live feed
+      useEffect(() => {
+        if (paused) return;
+        const iv = setInterval(addTxn, 2800);
+        return () => clearInterval(iv);
+      }, [paused, addTxn]);
+
+      const resolveCase = useCallback((caseId, status) => {
+        setCases(p => p.map(c => c.id === caseId ? { ...c, status } : c));
+        if (status === 'SAR Filed')      setStats(p => ({ ...p, sarFiled: p.sarFiled + 1 }));
+        if (status === 'False Positive') setStats(p => ({ ...p, falsePos: p.falsePos + 1 }));
+      }, []);
+
+      const filteredTxns = useMemo(() => {
+        if (filter === 'ALL') return txns;
+        if (filter === 'HIGH') return txns.filter(t => t.riskScore >= 60);
+        if (filter === 'CRITICAL') return txns.filter(t => t.riskScore >= 80);
+        return txns;
+      }, [txns, filter]);
+
+      return (
+        <div style={{ height:'100vh', display:'flex', flexDirection:'column', background:'#030712' }}>
+          <Toast toasts={toasts} />
+          <Header stats={stats} paused={paused} setPaused={setPaused} />
+          <div style={{ flex:1, display:'grid', gridTemplateColumns:'1fr 1.1fr 0.9fr', gap:'8px', padding:'8px', overflow:'hidden' }}>
+            {/* Left: Feed */}
+            <TxnFeed txns={filteredTxns} selected={selected} onSelect={setSelected} filter={filter} setFilter={setFilter} />
+            {/* Center: Graph + Detail/Analytics */}
+            <div style={{ display:'flex', flexDirection:'column', gap:'8px', overflow:'hidden' }}>
+              <EntityGraph txns={txns} selected={selected} />
+              {selected
+                ? <TxnDetail txn={selected} onClose={() => setSelected(null)} />
+                : <AnalyticsPanel txns={txns} />
+              }
+            </div>
+            {/* Right: Cases */}
+            <CaseQueue cases={cases} onResolve={resolveCase} />
+          </div>
+        </div>
+      );
+    }
+
+    // ─── Header ──────────────────────────────────────────────────────────────
+    function Header({ stats, paused, setPaused }) {
+      const [now, setNow] = useState(new Date());
+      useEffect(() => { const iv = setInterval(() => setNow(new Date()), 1000); return () => clearInterval(iv); }, []);
+      const alertRate = stats.total > 0 ? (((stats.critical + stats.high) / stats.total) * 100).toFixed(1) : '0.0';
+
+      return (
+        <div style={{ background:'#0a0f1a', borderBottom:'1px solid #1f2937', padding:'0 12px', height:'56px', display:'flex', alignItems:'center', justifyContent:'space-between', flexShrink:0 }}>
+          <div style={{ display:'flex', alignItems:'center', gap:'24px' }}>
+            <div>
+              <div style={{ color:'#22d3ee', fontSize:'15px', fontWeight:'bold', letterSpacing:'0.1em' }}>⬡ FINSIGHT AML</div>
+              <div style={{ color:'#4b5563', fontSize:'10px', letterSpacing:'0.05em' }}>TRANSACTION INTELLIGENCE PLATFORM · FCA JMLSG ALIGNED</div>
+            </div>
+            <div style={{ display:'flex', gap:'20px', paddingLeft:'16px', borderLeft:'1px solid #1f2937' }}>
+              <Stat label="Screened"    value={stats.total}    color="#9ca3af" />
+              <Stat label="Critical"    value={stats.critical} color="#ef4444" />
+              <Stat label="High Risk"   value={stats.high}     color="#f97316" />
+              <Stat label="SARs Filed"  value={stats.sarFiled} color="#a78bfa" />
+              <Stat label="False +ve"   value={stats.falsePos} color="#22c55e" />
+              <Stat label="Alert Rate"  value={`${alertRate}%`} color="#eab308" />
+            </div>
+          </div>
+          <div style={{ display:'flex', alignItems:'center', gap:'12px' }}>
+            <div style={{ textAlign:'right' }}>
+              <div style={{ color:'#6b7280', fontSize:'10px' }}>{now.toLocaleDateString('en-GB',{weekday:'short',day:'2-digit',month:'short',year:'numeric'})}</div>
+              <div style={{ color:'#22d3ee', fontSize:'12px', fontWeight:'bold' }}>{fmtTime(now)} GMT</div>
+            </div>
+            <button onClick={() => setPaused(p => !p)} style={{
+              padding:'4px 12px', fontSize:'10px', borderRadius:'4px', cursor:'pointer', fontFamily:'monospace',
+              border: paused ? '1px solid #22c55e' : '1px solid #f97316',
+              color: paused ? '#22c55e' : '#f97316',
+              background: 'transparent', letterSpacing:'0.05em'
+            }}>
+              {paused ? '▶ RESUME' : '⏸ PAUSE'}
+            </button>
+            <div className={paused ? '' : 'live-dot'} style={{ width:'8px', height:'8px', borderRadius:'50%', background: paused ? '#374151' : '#22c55e' }} />
+          </div>
+        </div>
+      );
+    }
+    function Stat({ label, value, color }) {
+      return (
+        <div style={{ textAlign:'center' }}>
+          <div style={{ color, fontSize:'18px', fontWeight:'bold', lineHeight:1.1 }}>{value}</div>
+          <div style={{ color:'#4b5563', fontSize:'9px', letterSpacing:'0.04em' }}>{label}</div>
+        </div>
+      );
+    }
+
+    // ─── Transaction Feed ─────────────────────────────────────────────────────
+    function TxnFeed({ txns, selected, onSelect, filter, setFilter }) {
+      return (
+        <div style={{ display:'flex', flexDirection:'column', background:'#0a0f1a', border:'1px solid #1f2937', borderRadius:'8px', overflow:'hidden' }}>
+          <div style={{ padding:'6px 10px', borderBottom:'1px solid #1f2937', display:'flex', alignItems:'center', justifyContent:'space-between', flexShrink:0 }}>
+            <span style={{ color:'#6b7280', fontSize:'10px', letterSpacing:'0.1em' }}>LIVE TRANSACTION FEED</span>
+            <div style={{ display:'flex', gap:'4px' }}>
+              {['ALL','HIGH','CRITICAL'].map(f => (
+                <button key={f} onClick={() => setFilter(f)} style={{
+                  padding:'2px 8px', fontSize:'9px', borderRadius:'3px', cursor:'pointer', fontFamily:'monospace',
+                  background: filter === f ? '#1f2937' : 'transparent',
+                  border: filter === f ? '1px solid #374151' : '1px solid transparent',
+                  color: filter === f ? '#d1d5db' : '#6b7280'
+                }}>{f}</button>
+              ))}
+            </div>
+          </div>
+          <div style={{ flex:1, overflowY:'auto' }}>
+            {txns.map((txn, i) => {
+              const t = tier(txn.riskScore);
+              const isSelected = selected?.id === txn.id;
+              return (
+                <div key={txn.id} onClick={() => onSelect(txn)} className={i === 0 ? 'txn-new' : ''}
+                  style={{
+                    padding:'8px 10px', borderBottom:'1px solid #111827', cursor:'pointer',
+                    background: isSelected ? '#111827' : 'transparent',
+                    borderLeft: isSelected ? `2px solid ${t.col}` : '2px solid transparent',
+                    transition:'background 0.15s'
+                  }}>
+                  <div style={{ display:'flex', justifyContent:'space-between', marginBottom:'3px' }}>
+                    <span style={{ color:'#4b5563', fontSize:'10px' }}>{txn.id}</span>
+                    <span style={{ color:'#374151', fontSize:'10px' }}>{fmtTime(txn.ts)}</span>
+                  </div>
+                  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start' }}>
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <div style={{ color:'#e5e7eb', fontSize:'12px', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{txn.customer}</div>
+                      <div style={{ color:'#6b7280', fontSize:'10px' }}>{txn.type} · {txn.fromCountry} → {txn.toCountry}</div>
+                    </div>
+                    <div style={{ textAlign:'right', flexShrink:0, marginLeft:'8px' }}>
+                      <div style={{ color:'#f9fafb', fontSize:'12px', fontWeight:'bold' }}>{formatGBP(txn.amount)}</div>
+                      <div style={{ color: t.col, fontSize:'10px', fontWeight:'bold' }}>{txn.riskScore} · {t.label}</div>
+                    </div>
+                  </div>
+                  {txn.riskFactors.length > 0 && (
+                    <div style={{ marginTop:'4px', display:'flex', gap:'3px', flexWrap:'wrap' }}>
+                      {txn.riskFactors.slice(0,2).map((f,i) => (
+                        <span key={i} style={{ fontSize:'9px', color:'#9ca3af', background:'#1f2937', padding:'1px 5px', borderRadius:'3px' }}>
+                          {f.replace('⚠ ','')}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      );
+    }
+
+    // ─── Entity Network Graph ─────────────────────────────────────────────────
+    function EntityGraph({ txns, selected }) {
+      const svgRef = useRef(null);
+      const simRef = useRef(null);
+
+      useEffect(() => {
+        const svg = d3.select(svgRef.current);
+        const W = svgRef.current.clientWidth || 400;
+        const H = svgRef.current.clientHeight || 240;
+        const recent = txns.slice(0, 25);
+
+        const nodesMap = new Map();
+        const links = [];
+
+        recent.forEach(txn => {
+          if (!nodesMap.has(txn.customerId)) {
+            nodesMap.set(txn.customerId, {
+              id: txn.customerId, label: txn.customer.split(' ')[0],
+              type: 'customer', risk: txn.riskScore,
+              hl: selected?.customerId === txn.customerId
+            });
+          } else {
+            const n = nodesMap.get(txn.customerId);
+            if (txn.riskScore > n.risk) n.risk = txn.riskScore;
+            if (selected?.customerId === txn.customerId) n.hl = true;
+          }
+          const destId = `D-${txn.toCountry}`;
+          if (!nodesMap.has(destId)) {
+            nodesMap.set(destId, {
+              id: destId, label: txn.toCountry,
+              type: HIGH_RISK.includes(txn.toCountry) ? 'highrisk' : MEDIUM_RISK.includes(txn.toCountry) ? 'medrisk' : 'country',
+              risk: HIGH_RISK.includes(txn.toCountry) ? 85 : 20
+            });
+          }
+          links.push({ source: txn.customerId, target: destId, risk: txn.riskScore, amt: txn.amount });
+        });
+
+        const nodes = Array.from(nodesMap.values());
+        svg.selectAll('*').remove();
+
+        const defs = svg.append('defs');
+        ['low','med','high','crit'].forEach((n,i) => {
+          const col = ['#22c55e','#eab308','#f97316','#ef4444'][i];
+          defs.append('marker').attr('id',`arr-${n}`)
+            .attr('viewBox','-0 -5 10 10').attr('refX',16).attr('refY',0)
+            .attr('orient','auto').attr('markerWidth',5).attr('markerHeight',5)
+            .append('path').attr('d','M 0,-5 L 10,0 L 0,5').attr('fill', col).attr('opacity',0.6);
+        });
+
+        const g = svg.append('g');
+        svg.call(d3.zoom().scaleExtent([0.4,3]).on('zoom', e => g.attr('transform', e.transform)));
+
+        if (simRef.current) simRef.current.stop();
+        const sim = d3.forceSimulation(nodes)
+          .force('link', d3.forceLink(links).id(d=>d.id).distance(70).strength(0.6))
+          .force('charge', d3.forceManyBody().strength(-180))
+          .force('center', d3.forceCenter(W/2, H/2))
+          .force('collide', d3.forceCollide(20));
+        simRef.current = sim;
+
+        const arrId = r => r>=80?'arr-crit':r>=60?'arr-high':r>=35?'arr-med':'arr-low';
+        const linkCol = r => r>=80?'#ef4444':r>=60?'#f97316':r>=35?'#eab308':'#1f2937';
+
+        const link = g.append('g').selectAll('line').data(links).enter().append('line')
+          .attr('stroke', d => linkCol(d.risk))
+          .attr('stroke-width', d => Math.max(0.5, Math.min(2.5, d.amt/15000)))
+          .attr('stroke-opacity', 0.5)
+          .attr('marker-end', d => `url(#${arrId(d.risk)})`);
+
+        const node = g.append('g').selectAll('g').data(nodes).enter().append('g')
+          .call(d3.drag()
+            .on('start', (e,d) => { if(!e.active) sim.alphaTarget(0.3).restart(); d.fx=d.x; d.fy=d.y; })
+            .on('drag',  (e,d) => { d.fx=e.x; d.fy=e.y; })
+            .on('end',   (e,d) => { if(!e.active) sim.alphaTarget(0); d.fx=null; d.fy=null; })
+          );
+
+        node.append('circle')
+          .attr('r', d => d.type==='customer' ? 11 : d.type==='highrisk' ? 9 : 7)
+          .attr('fill', d => {
+            if (d.hl) return '#22d3ee';
+            if (d.type==='highrisk') return '#ef4444';
+            if (d.type==='medrisk')  return '#eab308';
+            if (d.type==='customer') return tier(d.risk).col;
+            return '#1e3a5f';
+          })
+          .attr('stroke', d => d.hl ? '#fff' : 'transparent')
+          .attr('stroke-width', 2).attr('opacity', 0.85);
+
+        node.append('text').text(d => d.label)
+          .attr('x',0).attr('y', d => d.type==='customer' ? 20 : 17)
+          .attr('text-anchor','middle').attr('font-size','8px')
+          .attr('fill','#6b7280').attr('font-family','monospace');
+
+        sim.on('tick', () => {
+          link.attr('x1',d=>d.source.x).attr('y1',d=>d.source.y)
+              .attr('x2',d=>d.target.x).attr('y2',d=>d.target.y);
+          node.attr('transform', d => `translate(${d.x},${d.y})`);
+        });
+
+        return () => sim.stop();
+      }, [txns.length, selected?.id]);
+
+      return (
+        <div style={{ background:'#0a0f1a', border:'1px solid #1f2937', borderRadius:'8px', display:'flex', flexDirection:'column', height:'260px', flexShrink:0 }}>
+          <div style={{ padding:'6px 10px', borderBottom:'1px solid #1f2937', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+            <span style={{ color:'#6b7280', fontSize:'10px', letterSpacing:'0.1em' }}>ENTITY NETWORK GRAPH</span>
+            <div style={{ display:'flex', gap:'10px', fontSize:'9px', color:'#4b5563' }}>
+              <span><span style={{color:'#ef4444'}}>●</span> High-Risk Country</span>
+              <span><span style={{color:'#f97316'}}>●</span> High-Risk Txn</span>
+              <span><span style={{color:'#22c55e'}}>●</span> Low Risk</span>
+              <span><span style={{color:'#22d3ee'}}>●</span> Selected</span>
+            </div>
+          </div>
+          <svg ref={svgRef} style={{ flex:1, width:'100%' }} />
+        </div>
+      );
+    }
+
+    // ─── Transaction Detail ───────────────────────────────────────────────────
+    function TxnDetail({ txn, onClose }) {
+      const t = tier(txn.riskScore);
+      const hrDest = HIGH_RISK.includes(txn.toCountry);
+      return (
+        <div className="fade-in" style={{ background:'#0a0f1a', border:`1px solid ${t.col}44`, borderRadius:'8px', padding:'12px', flex:1, overflow:'auto' }}>
+          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'10px' }}>
+            <span style={{ color:'#6b7280', fontSize:'10px', letterSpacing:'0.1em' }}>TRANSACTION DETAIL</span>
+            <button onClick={onClose} style={{ background:'transparent', border:'none', color:'#4b5563', cursor:'pointer', fontSize:'11px' }}>✕ CLOSE</button>
+          </div>
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'6px', marginBottom:'10px' }}>
+            {[
+              ['ID',         txn.id],
+              ['Reference',  txn.ref],
+              ['Customer',   txn.customer],
+              ['Entity Type',txn.customerType],
+              ['Amount',     formatGBP(txn.amount)],
+              ['Type',       txn.type],
+              ['From',       `${COUNTRIES[txn.fromCountry]} (${txn.fromCountry})`],
+              ['To',         `${COUNTRIES[txn.toCountry] || txn.toCountry} (${txn.toCountry})`],
+              ['Timestamp',  fmtTime(txn.ts)],
+              ['Currency',   txn.currency],
+            ].map(([k,v]) => (
+              <div key={k} style={{ fontSize:'11px' }}>
+                <span style={{ color:'#4b5563' }}>{k}: </span>
+                <span style={{ color: k==='To' && hrDest ? '#ef4444' : '#d1d5db' }}>{v}</span>
+              </div>
+            ))}
+          </div>
+
+          <div style={{ marginBottom:'8px' }}>
+            <div style={{ display:'flex', alignItems:'center', gap:'8px', marginBottom:'4px' }}>
+              <span style={{ color:'#6b7280', fontSize:'10px' }}>RISK SCORE</span>
+              <span style={{ color: t.col, fontWeight:'bold', fontSize:'13px' }}>{txn.riskScore}/100</span>
+              <span style={{ color: t.col, fontSize:'10px', border:`1px solid ${t.col}`, padding:'1px 6px', borderRadius:'3px' }}>{t.label}</span>
+            </div>
+            <div style={{ background:'#1f2937', borderRadius:'4px', height:'8px', overflow:'hidden' }}>
+              <div style={{ height:'100%', width:`${txn.riskScore}%`, background:`linear-gradient(90deg, #22c55e, ${t.col})`, borderRadius:'4px', transition:'width 0.5s' }} />
+            </div>
+          </div>
+
+          {txn.riskFactors.length > 0 && (
+            <div>
+              <div style={{ color:'#6b7280', fontSize:'10px', marginBottom:'5px', letterSpacing:'0.05em' }}>RISK INDICATORS ({txn.riskFactors.length})</div>
+              {txn.riskFactors.map((f,i) => (
+                <div key={i} style={{ color:'#fbbf24', fontSize:'11px', display:'flex', alignItems:'flex-start', gap:'4px', marginBottom:'3px' }}>
+                  <span style={{flexShrink:0}}>{f.startsWith('⚠') ? '' : '⚠'}</span>{f}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {txn.riskFactors.length === 0 && (
+            <div style={{ color:'#22c55e', fontSize:'11px' }}>✓ No risk indicators detected — transaction cleared</div>
+          )}
+        </div>
+      );
+    }
+
+    // ─── Analytics Panel ──────────────────────────────────────────────────────
+    function AnalyticsPanel({ txns }) {
+      const donutRef = useRef(null);
+      const barRef   = useRef(null);
+      const donutInst = useRef(null);
+      const barInst   = useRef(null);
+
+      const tiers = useMemo(() => ({
+        critical: txns.filter(t=>t.riskScore>=80).length,
+        high:     txns.filter(t=>t.riskScore>=60&&t.riskScore<80).length,
+        medium:   txns.filter(t=>t.riskScore>=35&&t.riskScore<60).length,
+        low:      txns.filter(t=>t.riskScore<35).length,
+      }), [txns.length]);
+
+      const topCountries = useMemo(() => {
+        const m = {};
+        txns.forEach(t => { m[t.toCountry] = (m[t.toCountry]||0)+1; });
+        return Object.entries(m).sort((a,b)=>b[1]-a[1]).slice(0,6);
+      }, [txns.length]);
+
+      useEffect(() => {
+        if (!donutRef.current) return;
+        if (donutInst.current) donutInst.current.destroy();
+        donutInst.current = new Chart(donutRef.current, {
+          type: 'doughnut',
+          data: {
+            labels: ['Critical','High','Medium','Low'],
+            datasets: [{ data:[tiers.critical,tiers.high,tiers.medium,tiers.low],
+              backgroundColor:['#ef4444','#f97316','#eab308','#22c55e'],
+              borderColor:'#0a0f1a', borderWidth:3 }]
+          },
+          options: { responsive:true, maintainAspectRatio:false, cutout:'65%',
+            plugins:{ legend:{ position:'right', labels:{ color:'#6b7280', font:{size:9,family:'monospace'}, boxWidth:10, padding:6 } } }
+          }
+        });
+        return () => donutInst.current?.destroy();
+      }, [tiers.critical, tiers.high, tiers.medium, tiers.low]);
+
+      useEffect(() => {
+        if (!barRef.current) return;
+        if (barInst.current) barInst.current.destroy();
+        barInst.current = new Chart(barRef.current, {
+          type: 'bar',
+          data: {
+            labels: topCountries.map(([c])=>c),
+            datasets:[{ label:'Txns', data:topCountries.map(([,n])=>n),
+              backgroundColor: topCountries.map(([c])=> HIGH_RISK.includes(c)?'#ef4444':MEDIUM_RISK.includes(c)?'#eab308':'#1e40af'),
+              borderRadius:3 }]
+          },
+          options: { responsive:true, maintainAspectRatio:false,
+            plugins:{ legend:{ display:false } },
+            scales:{
+              x:{ ticks:{ color:'#6b7280', font:{size:9,family:'monospace'} }, grid:{ color:'#111827' } },
+              y:{ ticks:{ color:'#6b7280', font:{size:9,family:'monospace'} }, grid:{ color:'#111827' } }
+            }
+          }
+        });
+        return () => barInst.current?.destroy();
+      }, [topCountries]);
+
+      const alertRate = txns.length > 0
+        ? (((tiers.critical + tiers.high) / txns.length)*100).toFixed(1) : '0';
+      const avgScore  = txns.length > 0
+        ? (txns.reduce((s,t)=>s+t.riskScore,0)/txns.length).toFixed(1) : '0';
+
+      return (
+        <div style={{ background:'#0a0f1a', border:'1px solid #1f2937', borderRadius:'8px', padding:'10px', flex:1, display:'flex', flexDirection:'column', overflow:'hidden' }}>
+          <div style={{ color:'#6b7280', fontSize:'10px', letterSpacing:'0.1em', marginBottom:'8px' }}>RISK ANALYTICS</div>
+          <div style={{ display:'flex', gap:'12px', marginBottom:'8px' }}>
+            {[['Alert Rate',`${alertRate}%`,'#eab308'],['Avg Score',avgScore,'#f97316'],
+              ['Screened',txns.length,'#9ca3af'],['High+Crit',tiers.critical+tiers.high,'#ef4444']].map(([l,v,c])=>(
+              <div key={l} style={{ textAlign:'center', flex:1, background:'#111827', borderRadius:'6px', padding:'5px' }}>
+                <div style={{ color:c, fontSize:'16px', fontWeight:'bold' }}>{v}</div>
+                <div style={{ color:'#4b5563', fontSize:'9px' }}>{l}</div>
+              </div>
+            ))}
+          </div>
+          <div style={{ flex:1, display:'grid', gridTemplateColumns:'1fr 1fr', gap:'8px', minHeight:0 }}>
+            <div style={{ display:'flex', flexDirection:'column' }}>
+              <div style={{ color:'#4b5563', fontSize:'9px', marginBottom:'4px' }}>RISK TIER DISTRIBUTION</div>
+              <div style={{ flex:1 }}><canvas ref={donutRef} /></div>
+            </div>
+            <div style={{ display:'flex', flexDirection:'column' }}>
+              <div style={{ color:'#4b5563', fontSize:'9px', marginBottom:'4px' }}>TOP DESTINATIONS <span style={{color:'#ef4444'}}>■</span> HIGH-RISK</div>
+              <div style={{ flex:1 }}><canvas ref={barRef} /></div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ─── Case Queue ───────────────────────────────────────────────────────────
+    function CaseQueue({ cases, onResolve }) {
+      const [tab, setTab] = useState('open');
+      const open     = cases.filter(c => c.status === 'Open');
+      const resolved = cases.filter(c => c.status !== 'Open');
+      const shown    = tab === 'open' ? open : resolved;
+
+      return (
+        <div style={{ background:'#0a0f1a', border:'1px solid #1f2937', borderRadius:'8px', display:'flex', flexDirection:'column', overflow:'hidden' }}>
+          <div style={{ padding:'6px 10px', borderBottom:'1px solid #1f2937', display:'flex', justifyContent:'space-between', alignItems:'center', flexShrink:0 }}>
+            <span style={{ color:'#6b7280', fontSize:'10px', letterSpacing:'0.1em' }}>CASE QUEUE</span>
+            <div style={{ display:'flex', gap:'4px' }}>
+              {[['open',open.length,'Open'],['resolved',resolved.length,'Resolved']].map(([v,n,l])=>(
+                <button key={v} onClick={()=>setTab(v)} style={{
+                  padding:'2px 8px', fontSize:'9px', borderRadius:'3px', cursor:'pointer', fontFamily:'monospace',
+                  background: tab===v ? '#1f2937' : 'transparent',
+                  border: tab===v ? '1px solid #374151' : '1px solid transparent',
+                  color: tab===v ? '#d1d5db' : '#6b7280'
+                }}>{l} ({n})</button>
+              ))}
+            </div>
+          </div>
+          <div style={{ flex:1, overflowY:'auto' }}>
+            {shown.length === 0 && (
+              <div style={{ color:'#374151', fontSize:'11px', textAlign:'center', padding:'24px 12px' }}>
+                {tab==='open' ? 'No open cases — monitoring active...' : 'No resolved cases yet'}
+              </div>
+            )}
+            {shown.map(c => {
+              const t = tier(c.txn.riskScore);
+              const hrDest = HIGH_RISK.includes(c.txn.toCountry);
+              return (
+                <div key={c.id} style={{
+                  padding:'10px', borderBottom:'1px solid #111827',
+                  borderLeft: `3px solid ${t.col}`,
+                  opacity: c.status !== 'Open' ? 0.55 : 1
+                }}>
+                  <div style={{ display:'flex', justifyContent:'space-between', marginBottom:'3px' }}>
+                    <span style={{ color:'#4b5563', fontSize:'10px' }}>{c.id}</span>
+                    <span style={{ color: t.col, fontSize:'10px', fontWeight:'bold' }}>{c.txn.riskScore} · {t.label}</span>
+                  </div>
+                  <div style={{ color:'#e5e7eb', fontSize:'12px', marginBottom:'2px' }}>{c.txn.customer}</div>
+                  <div style={{ color:'#6b7280', fontSize:'10px', marginBottom:'2px' }}>
+                    {formatGBP(c.txn.amount)} · {c.txn.type}
+                  </div>
+                  <div style={{ color: hrDest ? '#fca5a5' : '#6b7280', fontSize:'10px', marginBottom:'6px' }}>
+                    {c.txn.fromCountry} → {c.txn.toCountry}{hrDest ? ' ⚠' : ''}
+                  </div>
+                  {c.txn.riskFactors.slice(0,2).map((f,i) => (
+                    <div key={i} style={{ color:'#92400e', background:'#1c1008', fontSize:'9px', padding:'2px 5px', borderRadius:'3px', marginBottom:'2px' }}>
+                      {f}
+                    </div>
+                  ))}
+                  {c.status === 'Open' ? (
+                    <div style={{ display:'flex', gap:'4px', flexWrap:'wrap', marginTop:'6px' }}>
+                      {[
+                        ['Under Review','#1d4ed8','#93c5fd'],
+                        ['SAR Filed',   '#581c87','#c4b5fd'],
+                        ['False Positive','#14532d','#86efac'],
+                        ['Escalate',    '#7c2d12','#fdba74'],
+                      ].map(([s,bg,col]) => (
+                        <button key={s} onClick={()=>onResolve(c.id,s)} style={{
+                          padding:'3px 8px', fontSize:'9px', borderRadius:'3px', cursor:'pointer', fontFamily:'monospace',
+                          background: bg+'33', border:`1px solid ${bg}88`, color: col
+                        }}>{s}</button>
+                      ))}
+                    </div>
+                  ) : (
+                    <div style={{ marginTop:'5px' }}>
+                      <span style={{
+                        fontSize:'10px', padding:'2px 8px', borderRadius:'3px',
+                        background: c.status==='SAR Filed'?'#2e1065':c.status==='False Positive'?'#052e16':c.status==='Escalate'?'#431407':'#1e3a5f',
+                        color:       c.status==='SAR Filed'?'#c4b5fd':c.status==='False Positive'?'#86efac':c.status==='Escalate'?'#fdba74':'#93c5fd',
+                      }}>✓ {c.status}</span>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          <div style={{ padding:'8px 10px', borderTop:'1px solid #1f2937', flexShrink:0 }}>
+            <div style={{ fontSize:'9px', color:'#374151', lineHeight:'1.5' }}>
+              Regulated under POCA 2002 · JMLSG Guidance · FCA ML Regs 2017<br/>
+              SARs submitted to National Crime Agency (NCA) · UK FIU
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ─── Mount ───────────────────────────────────────────────────────────────
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>
