@@ -1,0 +1,794 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>The Laundromat - AML Detection Simulator</title>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#070A0E;
+  --p1:#0C1017;
+  --p2:#111720;
+  --bor:#1E293B;
+  --red:#F43F5E;
+  --amb:#F59E0B;
+  --grn:#10B981;
+  --blu:#3B82F6;
+  --txt:#F1F5F9;
+  --sub:#94A3B8;
+  --dim:#1E293B;
+  --fh:'Outfit',sans-serif;
+  --fm:'JetBrains Mono',monospace;
+}
+
+html{scroll-behavior:smooth}
+body{background:var(--bg);color:var(--txt);font-family:var(--fh);min-height:100vh}
+
+/* INTRO */
+#intro{
+  min-height:100vh;display:flex;flex-direction:column;align-items:center;
+  justify-content:center;padding:32px 24px;text-align:center;
+  background:radial-gradient(ellipse 90% 60% at 50% 0%,rgba(244,63,94,.1) 0%,transparent 65%);
+}
+.badge{
+  display:inline-flex;align-items:center;gap:7px;
+  background:rgba(244,63,94,.1);border:1px solid rgba(244,63,94,.25);
+  border-radius:999px;padding:5px 14px;
+  font-family:var(--fm);font-size:10px;letter-spacing:.12em;
+  color:rgba(244,63,94,.8);text-transform:uppercase;
+  margin-bottom:28px;animation:up .5s ease both;
+}
+.badge span{width:6px;height:6px;border-radius:50%;background:var(--red);display:inline-block;animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+
+h1{
+  font-size:clamp(52px,10vw,100px);font-weight:800;
+  line-height:.95;letter-spacing:-.03em;
+  color:#fff;margin-bottom:8px;
+  animation:up .5s .08s ease both;
+}
+h1 em{color:var(--red);font-style:normal}
+
+.tagline{
+  font-size:clamp(14px,2vw,18px);color:var(--sub);
+  font-weight:300;line-height:1.7;max-width:480px;
+  margin-bottom:32px;animation:up .5s .16s ease both;
+}
+
+.disclaimer{
+  background:rgba(244,63,94,.05);
+  border:1px solid rgba(244,63,94,.15);
+  border-radius:8px;padding:14px 20px;
+  max-width:480px;margin-bottom:36px;
+  font-family:var(--fm);font-size:11px;
+  color:rgba(248,113,133,.7);line-height:1.8;
+  animation:up .5s .24s ease both;
+}
+
+.start-btn{
+  font-family:var(--fh);font-size:15px;font-weight:600;
+  letter-spacing:.02em;background:var(--red);color:#fff;
+  border:none;border-radius:8px;padding:14px 40px;
+  cursor:pointer;transition:all .15s;
+  animation:up .5s .32s ease both;
+}
+.start-btn:hover{background:#E11D48;box-shadow:0 0 32px rgba(244,63,94,.35);transform:translateY(-1px)}
+
+@keyframes up{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+
+/* HEADER */
+#game{display:none}
+
+.header{
+  background:var(--p1);border-bottom:1px solid var(--bor);
+  display:flex;align-items:center;gap:0;
+  position:sticky;top:0;z-index:50;
+}
+
+.header-brand{
+  padding:12px 20px;border-right:1px solid var(--bor);
+  font-size:14px;font-weight:700;letter-spacing:-.01em;
+  white-space:nowrap;
+}
+.header-brand span{color:var(--red)}
+
+.header-hud{
+  display:flex;flex:1;
+}
+
+.hud-cell{
+  flex:1;padding:10px 16px;border-right:1px solid var(--bor);
+  display:flex;flex-direction:column;gap:2px;
+}
+.hud-cell:last-child{border-right:none}
+
+.hud-label{
+  font-family:var(--fm);font-size:8px;letter-spacing:.15em;
+  text-transform:uppercase;color:var(--sub);
+}
+.hud-value{
+  font-family:var(--fm);font-size:15px;font-weight:500;
+}
+.hud-value.g{color:var(--grn)}
+.hud-value.b{color:var(--blu)}
+.hud-value.r{color:var(--red)}
+.hud-value.a{color:var(--amb)}
+
+.heat-track{height:2px;background:var(--bor);border-radius:1px;margin-top:3px;overflow:hidden;width:80px}
+.heat-bar{height:100%;background:linear-gradient(90deg,var(--amb),var(--red));border-radius:1px;transition:width .5s ease}
+
+/* MAIN */
+.wrap{max-width:760px;margin:0 auto;padding:36px 20px 80px}
+
+/* phase steps */
+.steps{
+  display:flex;align-items:center;gap:0;
+  margin-bottom:36px;
+}
+.step{
+  display:flex;align-items:center;gap:8px;
+  font-family:var(--fm);font-size:10px;letter-spacing:.08em;
+  text-transform:uppercase;color:var(--sub);
+  flex:1;
+}
+.step-num{
+  width:24px;height:24px;border-radius:50%;
+  border:1px solid var(--bor);
+  display:flex;align-items:center;justify-content:center;
+  font-size:10px;font-weight:600;flex-shrink:0;
+  transition:all .25s;
+}
+.step.done .step-num{background:var(--grn);border-color:var(--grn);color:#fff}
+.step.active .step-num{background:var(--red);border-color:var(--red);color:#fff}
+.step-line{flex:1;height:1px;background:var(--bor);margin:0 8px;transition:background .25s}
+.step.done + .step .step-line{background:var(--grn)}
+
+/* scene */
+.phase-label{
+  font-family:var(--fm);font-size:10px;letter-spacing:.15em;
+  text-transform:uppercase;color:var(--red);
+  margin-bottom:8px;
+}
+.scene-title{
+  font-size:clamp(28px,5vw,42px);font-weight:800;
+  letter-spacing:-.02em;line-height:1.05;
+  color:#fff;margin-bottom:10px;
+}
+.scene-desc{
+  font-size:14px;color:var(--sub);line-height:1.75;
+  max-width:580px;font-weight:300;margin-bottom:24px;
+}
+
+/* intel box */
+.intel-box{
+  background:var(--p1);border:1px solid var(--bor);
+  border-left:3px solid var(--blu);
+  border-radius:8px;padding:16px 18px;margin-bottom:28px;
+}
+.intel-label{
+  font-family:var(--fm);font-size:9px;letter-spacing:.15em;
+  text-transform:uppercase;color:var(--blu);margin-bottom:8px;
+}
+.intel-text{font-size:13px;color:rgba(148,163,184,.8);line-height:1.7;font-weight:300}
+.intel-text strong{color:rgba(147,197,253,.9);font-weight:500}
+
+/* choices */
+.choices{display:flex;flex-direction:column;gap:10px;margin-bottom:8px}
+
+.choice-card{
+  background:var(--p1);border:1px solid var(--bor);
+  border-radius:10px;padding:20px 22px;cursor:pointer;
+  transition:all .18s;position:relative;overflow:hidden;
+}
+.choice-card::after{
+  content:'';position:absolute;left:0;top:0;bottom:0;width:3px;
+  background:transparent;transition:background .18s;border-radius:3px 0 0 3px;
+}
+.choice-card:hover{border-color:rgba(244,63,94,.35);background:var(--p2);transform:translateX(4px)}
+.choice-card:hover::after{background:var(--red)}
+
+.choice-top{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:6px}
+.choice-name{font-size:16px;font-weight:700;letter-spacing:-.01em;color:#fff}
+.choice-risk{
+  font-family:var(--fm);font-size:9px;letter-spacing:.1em;
+  text-transform:uppercase;padding:3px 10px;border-radius:4px;
+  white-space:nowrap;flex-shrink:0;
+}
+.risk-h{background:rgba(244,63,94,.1);color:rgba(251,113,133,.9);border:1px solid rgba(244,63,94,.2)}
+.risk-m{background:rgba(245,158,11,.08);color:rgba(252,211,77,.9);border:1px solid rgba(245,158,11,.18)}
+.risk-l{background:rgba(16,185,129,.08);color:rgba(52,211,153,.9);border:1px solid rgba(16,185,129,.18)}
+
+.choice-desc{font-size:13px;color:var(--sub);line-height:1.6;font-weight:300;margin-bottom:10px}
+
+.choice-meta{
+  display:flex;align-items:center;gap:8px;
+  font-family:var(--fm);font-size:10px;color:rgba(148,163,184,.5);
+}
+.choice-heat{color:rgba(244,63,94,.6)}
+
+/* RESULT */
+.result-wrap{animation:fadeIn .3s ease both}
+@keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+
+.result-choice{
+  background:var(--p1);border:1px solid var(--bor);
+  border-radius:8px;padding:16px 18px;margin-bottom:14px;
+}
+.result-label{font-family:var(--fm);font-size:9px;letter-spacing:.15em;text-transform:uppercase;color:var(--sub);margin-bottom:6px}
+.result-name{font-size:18px;font-weight:700;letter-spacing:-.01em;color:#fff;margin-bottom:4px}
+.result-desc{font-size:13px;color:var(--sub);line-height:1.6;font-weight:300}
+
+/* alert */
+.alert-box{
+  background:rgba(244,63,94,.04);
+  border:1px solid rgba(244,63,94,.18);
+  border-radius:8px;padding:18px 20px;margin-bottom:14px;
+}
+.alert-header{
+  display:flex;align-items:center;gap:8px;
+  font-family:var(--fm);font-size:10px;letter-spacing:.12em;
+  text-transform:uppercase;color:var(--red);margin-bottom:14px;
+}
+.alert-dot{
+  width:8px;height:8px;border-radius:50%;background:var(--red);flex-shrink:0;
+  animation:pulse 1.2s infinite;
+}
+.alert-item{
+  background:rgba(244,63,94,.06);
+  border-left:2px solid rgba(244,63,94,.35);
+  border-radius:0 4px 4px 0;
+  padding:12px 14px;margin-bottom:8px;
+}
+.alert-item:last-child{margin-bottom:0}
+.alert-title{
+  font-family:var(--fm);font-size:10px;font-weight:500;
+  color:rgba(251,113,133,.9);margin-bottom:5px;letter-spacing:.04em;
+}
+.alert-body{font-size:12px;color:rgba(253,164,175,.55);line-height:1.65;font-weight:300}
+.alert-body strong{color:rgba(253,164,175,.85);font-weight:500}
+
+/* clear */
+.clear-box{
+  background:rgba(16,185,129,.04);
+  border:1px solid rgba(16,185,129,.15);
+  border-radius:8px;padding:16px 18px;margin-bottom:14px;
+}
+.clear-header{
+  font-family:var(--fm);font-size:10px;letter-spacing:.12em;
+  text-transform:uppercase;color:var(--grn);
+  margin-bottom:8px;display:flex;align-items:center;gap:7px;
+}
+.clear-text{font-size:13px;color:rgba(52,211,153,.55);line-height:1.65;font-weight:300}
+
+/* learn box */
+.learn-box{
+  background:rgba(59,130,246,.04);
+  border:1px solid rgba(59,130,246,.15);
+  border-radius:8px;padding:16px 18px;margin-bottom:20px;
+}
+.learn-label{
+  font-family:var(--fm);font-size:9px;letter-spacing:.15em;
+  text-transform:uppercase;color:var(--blu);margin-bottom:10px;
+  display:flex;align-items:center;gap:7px;
+}
+.learn-label::before{content:'COMPLIANCE INSIGHT'}
+.learn-body{font-size:13px;color:rgba(147,197,253,.55);line-height:1.7;font-weight:300}
+.learn-body strong{color:rgba(147,197,253,.85);font-weight:500}
+.learn-refs{
+  display:flex;gap:6px;flex-wrap:wrap;margin-top:12px;
+}
+.ref-tag{
+  font-family:var(--fm);font-size:9px;letter-spacing:.08em;
+  background:rgba(59,130,246,.08);border:1px solid rgba(59,130,246,.18);
+  color:rgba(147,197,253,.7);border-radius:4px;padding:3px 8px;
+}
+
+.next-btn{
+  font-family:var(--fh);font-size:14px;font-weight:600;
+  background:var(--p1);color:var(--txt);
+  border:1px solid var(--bor);border-radius:8px;
+  padding:12px 28px;cursor:pointer;transition:all .15s;
+  display:inline-flex;align-items:center;gap:8px;
+}
+.next-btn:hover{border-color:rgba(244,63,94,.4);color:#fff;background:var(--p2)}
+.next-arrow{transition:transform .15s}
+.next-btn:hover .next-arrow{transform:translateX(4px)}
+
+/* END */
+#end{display:none;min-height:100vh;max-width:760px;margin:0 auto;padding:52px 24px 80px}
+.end-eyebrow{font-family:var(--fm);font-size:9px;letter-spacing:.2em;text-transform:uppercase;color:var(--sub);margin-bottom:14px}
+.end-title{font-size:clamp(32px,6vw,52px);font-weight:800;letter-spacing:-.025em;line-height:1.05;margin-bottom:12px}
+.end-sub{font-size:15px;color:var(--sub);line-height:1.75;max-width:540px;font-weight:300;margin-bottom:32px}
+
+.score-card{
+  background:var(--p1);border:1px solid var(--bor);
+  border-radius:10px;margin-bottom:16px;overflow:hidden;
+}
+.score-header{
+  background:var(--p2);padding:12px 20px;
+  font-family:var(--fm);font-size:9px;letter-spacing:.18em;
+  text-transform:uppercase;color:var(--sub);
+  border-bottom:1px solid var(--bor);
+}
+.score-row{
+  display:flex;justify-content:space-between;align-items:center;
+  padding:13px 20px;border-bottom:1px solid var(--bor);
+}
+.score-row:last-child{border-bottom:none}
+.score-key{font-size:13px;color:var(--sub);font-weight:300}
+.score-val{font-family:var(--fm);font-size:13px;font-weight:500}
+
+.learning-card{
+  background:var(--p1);border:1px solid var(--bor);
+  border-radius:10px;padding:24px;margin-bottom:20px;
+}
+.learning-title{font-size:17px;font-weight:700;letter-spacing:-.01em;margin-bottom:16px;color:#fff}
+.learning-item{
+  display:flex;gap:12px;padding:12px 0;
+  border-bottom:1px solid var(--bor);
+}
+.learning-item:last-child{border-bottom:none}
+.li-icon{
+  width:28px;height:28px;border-radius:6px;
+  background:rgba(59,130,246,.1);border:1px solid rgba(59,130,246,.18);
+  display:flex;align-items:center;justify-content:center;
+  font-size:12px;flex-shrink:0;margin-top:1px;
+}
+.li-content{}
+.li-term{font-size:13px;font-weight:600;color:#fff;margin-bottom:3px}
+.li-def{font-size:12px;color:var(--sub);line-height:1.6;font-weight:300}
+
+.play-again-btn{
+  font-family:var(--fh);font-size:14px;font-weight:600;
+  background:var(--p1);color:var(--txt);border:1px solid var(--bor);
+  border-radius:8px;padding:12px 24px;cursor:pointer;
+  transition:all .15s;margin-bottom:36px;
+}
+.play-again-btn:hover{border-color:var(--grn);color:var(--grn)}
+
+.credit-line{
+  font-family:var(--fm);font-size:10px;color:var(--dim);
+  line-height:1.9;padding-top:20px;border-top:1px solid var(--bor);
+}
+.credit-line a{color:var(--sub);text-decoration:none}
+
+@media(max-width:600px){
+  .header-hud{display:none}
+  .mobile-hud{display:flex;gap:0;border-bottom:1px solid var(--bor)}
+  .hud-cell{border-right:1px solid var(--bor);padding:10px 14px}
+}
+</style>
+</head>
+<body>
+
+<!-- INTRO -->
+<div id="intro">
+  <div class="badge"><span></span>AML Detection Simulator</div>
+  <h1>The<br><em>Laundromat</em></h1>
+  <p class="tagline">You have £1,000,000 in criminal proceeds. Can you clean it across three stages without triggering a Suspicious Activity Report to the NCA?</p>
+  <div class="disclaimer">
+    Educational simulation only. Every scenario maps to real typologies from FATF guidance, the NCA Annual SARs Report and the FCA Financial Crime Guide. Built by a KYC and AML Product Specialist.
+  </div>
+  <button class="start-btn" onclick="startGame()">Start Simulation</button>
+</div>
+
+<!-- GAME -->
+<div id="game">
+  <div class="header">
+    <div class="header-brand">The <span>Laundromat</span></div>
+    <div class="header-hud">
+      <div class="hud-cell">
+        <span class="hud-label">Dirty Cash</span>
+        <span class="hud-value g" id="h-dirty">£1,000,000</span>
+      </div>
+      <div class="hud-cell">
+        <span class="hud-label">Cleaned</span>
+        <span class="hud-value b" id="h-clean">£0</span>
+      </div>
+      <div class="hud-cell">
+        <span class="hud-label">AML Heat</span>
+        <span class="hud-value r" id="h-heat">0%</span>
+        <div class="heat-track"><div class="heat-bar" id="h-bar" style="width:0%"></div></div>
+      </div>
+      <div class="hud-cell">
+        <span class="hud-label">SARs Filed</span>
+        <span class="hud-value a" id="h-sars">0</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="wrap">
+    <!-- steps -->
+    <div class="steps" id="steps">
+      <div class="step active" id="step-0">
+        <div class="step-num">1</div>
+        <span>Placement</span>
+        <div class="step-line"></div>
+      </div>
+      <div class="step" id="step-1">
+        <div class="step-num">2</div>
+        <span>Layering</span>
+        <div class="step-line"></div>
+      </div>
+      <div class="step" id="step-2">
+        <div class="step-num">3</div>
+        <span>Integration</span>
+      </div>
+    </div>
+
+    <div id="scene"></div>
+  </div>
+</div>
+
+<!-- END -->
+<div id="end">
+  <div class="end-eyebrow">Simulation Complete</div>
+  <div class="end-title" id="e-title"></div>
+  <div class="end-sub" id="e-sub"></div>
+  <div class="score-card">
+    <div class="score-header">Your Results</div>
+    <div id="e-score"></div>
+  </div>
+  <div class="learning-card">
+    <div class="learning-title">What You Learned</div>
+    <div id="e-learn"></div>
+  </div>
+  <button class="play-again-btn" onclick="resetGame()">Play Again</button>
+  <div class="credit-line">
+    Built by Nikhil Shinde, KYC and AML Product Specialist<br>
+    Typologies sourced from FATF, NCA Annual SARs Report and FCA Financial Crime Guide<br>
+    <a href="https://nikhil2617shinde.netlify.app" target="_blank">nikhil2617shinde.netlify.app</a>
+  </div>
+</div>
+
+<script>
+const SCENES = [
+  {
+    phase: 0,
+    label: 'Phase 01 of 03 - Placement',
+    title: 'Getting Cash Into the System',
+    desc: 'You have £1,000,000 in criminal proceeds. It needs to enter the financial system before it can be moved or spent. This is the most dangerous stage. Choose your method.',
+    intel: 'Placement is the most detectable stage of money laundering. The moment criminal cash touches a regulated institution, AML controls activate. Transaction monitoring, CTF threshold screening and branch network analysis all run automatically in real time.',
+    choices: [
+      {
+        name: 'Smurfing and Structured Deposits',
+        desc: 'Recruit money mules to make 22 cash deposits under £5,000 each, spread across 6 branches over 18 days.',
+        risk: 'high', riskLabel: 'High Detection Risk',
+        heat: 38, dirty: -800000, clean: 800000,
+        alerts: [
+          { title: 'Structuring Alert - CTF Threshold Monitoring', body: '<strong>22 deposits</strong> averaging £3,800 across 6 branches in 18 days. Pattern matches known structuring typology. FATF Typology 7 flagged. Automated threshold monitoring escalated to MLRO.' },
+          { title: 'Branch Network Velocity Flag', body: 'Enterprise-wide transaction monitoring detects <strong>coordinated multi-branch deposit pattern</strong>. Shared device fingerprints and IP addresses across accounts. SAR consideration submitted.' }
+        ],
+        learn: {
+          body: 'Structuring, also called smurfing, is one of the most well-documented money laundering typologies globally. Breaking large sums into smaller deposits to stay below reporting thresholds is specifically criminalised in most jurisdictions. Banks run automated rules looking for patterns across branches, not just individual transactions.',
+          refs: ['FATF Typology 7', 'MLR 2017 Reg 37', 'POCA 2002 s.327', 'FCA SYSC 6.3']
+        }
+      },
+      {
+        name: 'Cash-Intensive Business Cover',
+        desc: 'Purchase a hair salon and restaurant. Blend criminal cash with legitimate daily takings before banking.',
+        risk: 'medium', riskLabel: 'Medium Detection Risk',
+        heat: 22, dirty: -700000, clean: 700000,
+        alerts: [
+          { title: 'Revenue Benchmark Anomaly', body: 'Cash turnover registered at <strong>340% above sector median</strong> for business type, size and location. Companies House shows single director with no employees. Enhanced transaction monitoring triggered by bank business intelligence layer.' }
+        ],
+        learn: {
+          body: 'Cash-intensive businesses are a classic placement vehicle because the commingling of dirty and clean cash is hard to unpick. However banks now cross-reference declared turnover against industry benchmarks automatically. A hair salon banking ten times its sector average will always attract scrutiny regardless of how plausible the explanation sounds.',
+          refs: ['JMLSG Guidance Part I Ch 4', 'MLR 2017 Reg 28', 'FCA Financial Crime Guide 2.2']
+        }
+      },
+      {
+        name: 'Trade-Based Value Transfer',
+        desc: 'Over-invoice shipments through a UAE import-export contact. Move value disguised as legitimate international trade.',
+        risk: 'low', riskLabel: 'Lower Immediate Risk',
+        heat: 10, dirty: -900000, clean: 900000,
+        clear: 'Trade invoices accepted by the correspondent bank. No automated alerts fire. However the value has now crossed two jurisdictions. HMRC Trade Intelligence and HMRC CITEX run quarterly cross-referencing of declared invoice values against official trade statistics for all UK-registered importers.',
+        learn: {
+          body: 'Trade-based money laundering is considered the most underdetected method globally by FATF. It exploits the complexity of international trade documentation, the volume of legitimate transactions and the difficulty of verifying whether invoice values reflect actual market prices. Correspondent banking relationships are the primary detection point.',
+          refs: ['FATF Trade-Based ML Report 2020', 'HMRC CITEX Guidance', 'Wolfsberg Group Trade Finance Principles']
+        }
+      }
+    ]
+  },
+  {
+    phase: 1,
+    label: 'Phase 02 of 03 - Layering',
+    title: 'Hiding Where It Came From',
+    desc: 'Money is in the financial system. Now create enough distance between the criminal source and the eventual destination that investigators cannot follow the trail.',
+    intel: 'Layering is designed to overwhelm investigators with complexity. Multiple entities, jurisdictions and instruments create a maze. Modern AML systems use network graph analysis and entity resolution to map the hidden connections between structures that appear unrelated.',
+    choices: [
+      {
+        name: 'UK Shell Company Chain',
+        desc: 'Register three UK limited companies with nominee directors. Issue inter-company invoices for consultancy services. Route funds through each in sequence.',
+        risk: 'high', riskLabel: 'High Detection Risk',
+        heat: 32, dirty: 0, clean: 0,
+        alerts: [
+          { title: 'Beneficial Ownership Network Alert', body: 'Three UK LTDs registered within <strong>6 weeks</strong> share a formation agent, registered address and bank branch. Network analysis reveals a single beneficial controller behind all three. PSC register anomaly identified. EDD request issued to compliance team.' },
+          { title: 'Consultancy Invoice Pattern Review', body: 'Invoice volumes are <strong>inconsistent with declared business size and activity</strong>. No staff registered, no PAYE, no operational overheads visible. Inter-company consultancy revenue pattern matches layering typology documented in NCA intelligence guidance. MLRO notified.' }
+        ],
+        learn: {
+          body: 'Shell company layering is one of the most frequently documented methods in NCA SARs analysis. The UK Companies House register is public, which makes nominee director structures and address clusters identifiable. Banks and AML technology platforms now run automated entity resolution across company registries to identify connected beneficial ownership even where ownership is deliberately obscured.',
+          refs: ['NCA Annual SARs Report 2024', 'POCA 2002 s.328', 'PSC Register MLR 2017', 'Fincen Beneficial Ownership Rule']
+        }
+      },
+      {
+        name: 'Cryptocurrency Mixing',
+        desc: 'Convert to Bitcoin via a peer-to-peer exchange. Route through a tumbling service. Convert back to GBP at a different exchange.',
+        risk: 'medium', riskLabel: 'Medium Detection Risk',
+        heat: 28, dirty: 0, clean: 0,
+        alerts: [
+          { title: 'FATF Travel Rule Non-Compliance', body: 'Transaction originates from an <strong>unhosted wallet</strong>. The receiving Virtual Asset Service Provider has no verified customer identity on record. FATF Travel Rule Recommendation 16 non-compliance flagged. FCA VASP supervision team notified.' }
+        ],
+        learn: {
+          body: 'The FATF Travel Rule requires Virtual Asset Service Providers to collect and transmit beneficiary and originator information for crypto transfers above certain thresholds, mirroring requirements for traditional wire transfers. Unhosted wallets and mixing services are specifically identified in FCA and FATF guidance as high-risk indicators because they are designed to break the audit trail.',
+          refs: ['FATF Recommendation 16', 'FCA Cryptoasset Registration', 'MLR 2017 Reg 46A', 'JMLSG Cryptoasset Guidance 2023']
+        }
+      },
+      {
+        name: 'Overseas Property Purchase',
+        desc: 'Purchase a Dubai apartment via a local solicitor, paid by international wire from a Cayman Islands holding company.',
+        risk: 'low', riskLabel: 'Lower Detection Risk',
+        heat: 14, dirty: 0, clean: 0,
+        clear: 'Wire transfer accepted. Property registered in Dubai. The Cayman holding structure provides opacity in the short term. However the NCA Unexplained Wealth Order regime and HMRC Register of Overseas Entities, which launched under the Economic Crime Act 2022, require disclosure of overseas property held by foreign entities with UK-connected beneficial owners.',
+        learn: {
+          body: 'Property has historically been the most significant vehicle for large-scale money laundering in the UK. The Economic Crime Transparency and Enforcement Act 2022 created the Register of Overseas Entities, requiring all foreign entities that own UK property to declare their beneficial owners. The NCA also has the power to issue Unexplained Wealth Orders requiring individuals to explain the legitimate source of assets disproportionate to their known income.',
+          refs: ['Economic Crime Act 2022', 'NCA Unexplained Wealth Orders', 'HMRC Register of Overseas Entities', 'POCA 2002 s.362A']
+        }
+      }
+    ]
+  },
+  {
+    phase: 2,
+    label: 'Phase 03 of 03 - Integration',
+    title: 'Making the Money Look Legitimate',
+    desc: 'The final stage. Criminal funds must re-enter the legitimate economy with a credible, documented explanation for their origin. Source of Wealth is the critical control at this stage.',
+    intel: 'Integration is the hardest stage to detect in real time because the money now resembles legitimate wealth. Detection relies on Source of Wealth verification during onboarding, lifestyle screening and ongoing monitoring for changes in a customer financial profile that cannot be explained by their declared income.',
+    choices: [
+      {
+        name: 'Luxury Asset Purchase and Resale',
+        desc: 'Buy a Ferrari and two Rolex watches with cash. Resell through a legitimate auction house at a small loss.',
+        risk: 'medium', riskLabel: 'Medium Detection Risk',
+        heat: 22, dirty: 0, clean: 0,
+        alerts: [
+          { title: 'High Value Dealer Mandatory Report', body: 'HMRC requires High Value Dealer registration for businesses accepting cash transactions exceeding <strong>£10,000 under MLR 2017</strong>. The auction house compliance officer is legally obligated to file a Suspicious Activity Report with the NCA. Reference: SAR/2026/118831. Transaction paused pending consent.' }
+        ],
+        learn: {
+          body: 'High Value Dealers are a designated sector under UK Money Laundering Regulations. Any business that accepts cash payments of 10,000 euros or more equivalent in any currency must register with HMRC, conduct customer due diligence and file SARs where money laundering is suspected. Auction houses, luxury car dealers and jewellers are all in scope and are trained to recognise unusual cash payment patterns.',
+          refs: ['MLR 2017 Part 1 Reg 14', 'HMRC HVD Registration', 'JMLSG Guidance Sector 16', 'POCA 2002 s.330']
+        }
+      },
+      {
+        name: 'Repatriate Overseas Property Proceeds',
+        desc: 'Sell the Dubai apartment and transfer the proceeds to a UK account as overseas property sale proceeds.',
+        risk: 'low', riskLabel: 'Lower Immediate Risk',
+        heat: 16, dirty: 0, clean: 0,
+        clear: 'Solicitor accepts the transfer. Funds clear as property sale proceeds in the UK account. On the surface this is a legitimate property transaction. However the Source of Wealth on the original Dubai purchase remains undocumented. A future mortgage application, wealth management onboarding or high value transaction will trigger Source of Funds and Source of Wealth verification that traces back to this point.',
+        learn: {
+          body: 'Source of Wealth verification is a cornerstone of Enhanced Due Diligence. Even where a specific transaction looks clean, regulated firms are required to understand where a customer underlying wealth originated. Professional money launderers understand this which is why long-term integration strategies are designed to create a documented paper trail of legitimate wealth accumulation rather than simply moving money around.',
+          refs: ['JMLSG Guidance 5.3.91-5.3.100', 'FCA Financial Crime Guide 3.2', 'MLR 2017 Reg 33', 'FATF Guidance on Beneficial Ownership 2023']
+        }
+      },
+      {
+        name: 'Loan-Back Scheme',
+        desc: 'Your offshore company lends the money back to you as a personal loan at market rate. Use it as a deposit to buy a UK property. Never repay the loan.',
+        risk: 'high', riskLabel: 'High Detection Risk',
+        heat: 45, dirty: 0, clean: 0,
+        alerts: [
+          { title: 'Mortgage Application - Source of Funds Failure', body: 'Deposit funds sourced from a <strong>loan from a connected offshore entity with no arm\'s length terms</strong> and no commercial rationale. Conveyancing solicitor flags transaction under MLR 2017 Reg 28 and files a Suspicious Activity Report. Consent requested from NCA before transaction can proceed.' },
+          { title: 'NCA Consent Refused - POCA 2002 Section 335', body: '<strong>The NCA has refused consent to proceed with the transaction.</strong> The property purchase is frozen pending investigation. Case referred to the Proceeds of Crime Unit. An Account Freezing Order has been applied to all associated accounts.' }
+        ],
+        learn: {
+          body: 'The loan-back scheme is one of the oldest integration methods and also one of the most thoroughly documented by law enforcement. UK conveyancing solicitors are required to conduct Source of Funds checks on all property purchase deposits. A loan from a connected offshore entity with no commercial rationale is one of the most widely flagged red flags in the property sector. The POCA 2002 consent regime means that once a SAR is filed, the institution must not proceed without NCA approval.',
+          refs: ['POCA 2002 s.335-336', 'Law Society AML Guidance 2023', 'NCA Property SARs Guidance', 'MLR 2017 Reg 28(11)']
+        }
+      }
+    ]
+  }
+];
+
+let state = { scene: 0, heat: 0, dirty: 1000000, clean: 0, sars: 0, totalHeat: 0 };
+
+function fmt(n) {
+  if (n >= 1000000) return '£' + (n / 1000000).toFixed(2) + 'M';
+  if (n >= 1000) return '£' + (n / 1000).toFixed(0) + 'K';
+  return '£' + n;
+}
+
+function updateHUD() {
+  document.getElementById('h-dirty').textContent = fmt(state.dirty);
+  document.getElementById('h-clean').textContent = fmt(state.clean);
+  document.getElementById('h-heat').textContent = state.heat + '%';
+  document.getElementById('h-sars').textContent = state.sars;
+  document.getElementById('h-bar').style.width = Math.min(state.heat, 100) + '%';
+}
+
+function updateSteps() {
+  [0, 1, 2].forEach(i => {
+    const el = document.getElementById('step-' + i);
+    el.className = 'step';
+    if (i < state.scene) el.classList.add('done');
+    else if (i === state.scene) el.classList.add('active');
+  });
+}
+
+function renderScene() {
+  const s = SCENES[state.scene];
+  if (!s) { endGame(); return; }
+
+  const riskClass = { high: 'risk-h', medium: 'risk-m', low: 'risk-l' };
+
+  const choicesHTML = s.choices.map((c, i) => `
+    <div class="choice-card" onclick="makeChoice(${i})">
+      <div class="choice-top">
+        <div class="choice-name">${c.name}</div>
+        <span class="choice-risk ${riskClass[c.risk]}">${c.riskLabel}</span>
+      </div>
+      <div class="choice-desc">${c.desc}</div>
+      <div class="choice-meta">
+        <span class="choice-heat">+${c.heat}% heat if detected</span>
+      </div>
+    </div>`).join('');
+
+  document.getElementById('scene').innerHTML = `
+    <div class="phase-label">${s.label}</div>
+    <div class="scene-title">${s.title}</div>
+    <div class="scene-desc">${s.desc}</div>
+    <div class="intel-box">
+      <div class="intel-label">How Detection Works</div>
+      <div class="intel-text">${s.intel}</div>
+    </div>
+    <div class="choices">${choicesHTML}</div>`;
+
+  updateSteps();
+  updateHUD();
+}
+
+function makeChoice(idx) {
+  const s = SCENES[state.scene];
+  const c = s.choices[idx];
+
+  state.heat = Math.min(state.heat + c.heat, 100);
+  state.totalHeat += c.heat;
+  if (c.dirty) state.dirty = Math.max(0, state.dirty + c.dirty);
+  if (c.clean) state.clean = Math.max(0, state.clean + c.clean);
+  if (c.alerts && c.alerts.length) {
+    state.sars += c.alerts.filter(a => a.title && (a.title.includes('SAR') || a.title.includes('Consent') || a.title.includes('Refused'))).length;
+  }
+  updateHUD();
+
+  let detectionHTML = '';
+  if (c.alerts && c.alerts.length) {
+    const items = c.alerts.map(a => `
+      <div class="alert-item">
+        <div class="alert-title">${a.title}</div>
+        <div class="alert-body">${a.body}</div>
+      </div>`).join('');
+    detectionHTML = `
+      <div class="alert-box">
+        <div class="alert-header"><div class="alert-dot"></div>Detection System Response</div>
+        ${items}
+      </div>`;
+  } else if (c.clear) {
+    detectionHTML = `
+      <div class="clear-box">
+        <div class="clear-header">No Immediate Alerts</div>
+        <div class="clear-text">${c.clear}</div>
+      </div>`;
+  }
+
+  const refsHTML = c.learn.refs.map(r => `<span class="ref-tag">${r}</span>`).join('');
+
+  const isLast = state.scene >= SCENES.length - 1;
+
+  document.getElementById('scene').innerHTML = `
+    <div class="result-wrap">
+      <div class="phase-label">${s.label}</div>
+      <div class="scene-title">What Happened</div>
+      <div class="result-choice">
+        <div class="result-label">Your Decision</div>
+        <div class="result-name">${c.name}</div>
+        <div class="result-desc">${c.desc}</div>
+      </div>
+      ${detectionHTML}
+      <div class="learn-box">
+        <div class="learn-label"></div>
+        <div class="learn-body">${c.learn.body}</div>
+        <div class="learn-refs">${refsHTML}</div>
+      </div>
+      <button class="next-btn" onclick="nextScene()">
+        ${isLast ? 'See Final Outcome' : 'Continue to Next Stage'}
+        <span class="next-arrow">&#8594;</span>
+      </button>
+    </div>`;
+
+  updateSteps();
+}
+
+function nextScene() {
+  state.scene++;
+  if (state.scene >= SCENES.length) { endGame(); return; }
+  renderScene();
+}
+
+function endGame() {
+  document.getElementById('game').style.display = 'none';
+  document.getElementById('end').style.display = 'block';
+
+  const arrested = state.heat >= 80 || state.sars >= 2;
+  const watched = state.heat >= 50 && !arrested;
+
+  let title, sub, titleColor;
+  if (arrested) {
+    title = 'SAR Filed. Investigation Opened.';
+    sub = 'Multiple Suspicious Activity Reports triggered an NCA investigation under POCA 2002. Your transactions have been referred to the Proceeds of Crime Unit. The NCA has seven years to bring charges.';
+    titleColor = 'var(--red)';
+  } else if (watched) {
+    title = 'The Money Is Clean. For Now.';
+    sub = 'No SARs were filed but your transaction profile is flagged for ongoing monitoring. Retrospective intelligence means any future financial activity linked to these funds could trigger an investigation without warning.';
+    titleColor = 'var(--amb)';
+  } else {
+    title = 'You Escaped This Time.';
+    sub = 'Low detection heat. No SARs filed. The money is integrated into the legitimate economy. However financial intelligence never has an expiry date. NCA and HMRC both run retrospective analysis on historical transactions when new intelligence emerges.';
+    titleColor = 'var(--grn)';
+  }
+
+  const cleanedAmount = Math.max(0, Math.round(state.clean * (1 - state.totalHeat / 200)));
+
+  document.getElementById('e-title').innerHTML = `<span style="color:${titleColor}">${title}</span>`;
+  document.getElementById('e-sub').textContent = sub;
+
+  document.getElementById('e-score').innerHTML = `
+    <div class="score-row"><span class="score-key">AML Heat Generated</span><span class="score-val" style="color:${state.heat >= 60 ? 'var(--red)' : 'var(--amb)'}">${state.heat}%</span></div>
+    <div class="score-row"><span class="score-key">Suspicious Activity Reports Filed</span><span class="score-val" style="color:var(--red)">${state.sars}</span></div>
+    <div class="score-row"><span class="score-key">Successfully Cleaned</span><span class="score-val" style="color:var(--grn)">${fmt(cleanedAmount)}</span></div>
+    <div class="score-row"><span class="score-key">Remaining Dirty Cash</span><span class="score-val">${fmt(state.dirty)}</span></div>
+    <div class="score-row"><span class="score-key">Outcome</span><span class="score-val" style="color:${titleColor}">${arrested ? 'Under Investigation' : watched ? 'Monitored' : 'Escaped'}</span></div>`;
+
+  document.getElementById('e-learn').innerHTML = `
+    <div class="learning-item">
+      <div class="li-icon">P</div>
+      <div class="li-content">
+        <div class="li-term">Placement</div>
+        <div class="li-def">The first and most detectable stage. Criminal cash entering the banking system triggers the highest density of automated AML controls including transaction monitoring and CTF threshold screening.</div>
+      </div>
+    </div>
+    <div class="learning-item">
+      <div class="li-icon">L</div>
+      <div class="li-content">
+        <div class="li-term">Layering</div>
+        <div class="li-def">Creating complexity through multiple entities, jurisdictions and instruments. Modern compliance systems counter this with graph analytics and entity resolution that map hidden connections across structures that appear unrelated.</div>
+      </div>
+    </div>
+    <div class="learning-item">
+      <div class="li-icon">I</div>
+      <div class="li-content">
+        <div class="li-term">Integration</div>
+        <div class="li-def">The hardest stage to detect in real time. Detection relies on Source of Wealth verification, lifestyle screening and ongoing monitoring for unexplained changes in a customer financial profile.</div>
+      </div>
+    </div>
+    <div class="learning-item">
+      <div class="li-icon">S</div>
+      <div class="li-content">
+        <div class="li-term">Suspicious Activity Reports</div>
+        <div class="li-def">Under POCA 2002, any person in the regulated sector who suspects money laundering must file a SAR with the NCA. Failure to report is itself a criminal offence. The NCA received 901,255 SARs in the 2023 to 2024 reporting year.</div>
+      </div>
+    </div>`;
+}
+
+function startGame() {
+  document.getElementById('intro').style.display = 'none';
+  document.getElementById('game').style.display = 'block';
+  renderScene();
+}
+
+function resetGame() {
+  state = { scene: 0, heat: 0, dirty: 1000000, clean: 0, sars: 0, totalHeat: 0 };
+  document.getElementById('end').style.display = 'none';
+  document.getElementById('game').style.display = 'block';
+  renderScene();
+}
+</script>
+</body>
+</html>
